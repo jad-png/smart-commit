@@ -14,7 +14,7 @@ export function createLlmService(config = {}) {
     command: config.command || null
   };
 
-  async function generateCommitMessage({ diff, defaultMessage, commitMeta }) {
+  async function generateCommitMessage(diff, commitMeta, defaultMessage) {
     if (!safeConfig.enabled) {
       return defaultMessage;
     }
