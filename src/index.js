@@ -4,7 +4,7 @@ import inquirer from 'inquirer';
 import { loadConfig } from './config.js';
 import { createGitService } from './gitService.js';
 import { planCommits } from './commitPlanner.js';
-import { maybeGenerateAiMessage } from './ai.js';
+import { createLlmService } from './llmService.js';
 
 const program = new Command();
 
@@ -15,7 +15,11 @@ program
   .option('--no-interactive', 'skip interactive previews and confirmations')
   .option('--no-include-staged', 'ignore already staged entries when planning commits')
   .option('-c, --config <path>', 'path to a custom smart-commit config file')
-  .option('--ai <command>', 'shell command that accepts a diff via stdin and outputs a commit subject line')
+  .option('--ai', 'force AI usage even if disabled in config')
+  .option('--no-ai', 'disable AI enhancements regardless of config')
+  .option('--ai-model <model>', 'LLM model name to use when AI is enabled')
+  .option('--ai-temperature <value>', 'LLM temperature between 0 and 1', parseFloatOption)
+  .option('--ai-endpoint <url>', 'Override the Ollama endpoint (default http://localhost:11434)')
   .option('--max-files-per-commit <count>', 'split commits once the file count is reached', parseInteger)
   .option('--scope-depth <depth>', 'how many path segments to use for the commit scope', parseInteger)
   .showHelpAfterError('(add --help for usage information)')
@@ -35,6 +39,7 @@ async function run(cliOptions) {
   const config = await loadConfig(cliOptions.config, cwd);
   const options = mergeOptions(cliOptions, config);
   const git = createGitService(cwd);
+  const llm = createLlmService(options.ai);
 
   await git.ensureRepo();
   const status = await git.getStatus();
@@ -69,7 +74,7 @@ async function run(cliOptions) {
     }
   }
 
-  await executePlan(plan, git, options);
+  await executePlan(plan, git, options, llm);
 }
 
 function mergeOptions(cliOptions, config) {
@@ -77,6 +82,8 @@ function mergeOptions(cliOptions, config) {
   const maxFilesPerCommit = Number.isFinite(cliOptions.maxFilesPerCommit)
     ? cliOptions.maxFilesPerCommit
     : config.maxFilesPerCommit;
+  const aiEnabled = cliOptions.noAi ? false : cliOptions.ai ? true : config.ai.enabled;
+  const aiTemperature = Number.isFinite(cliOptions.aiTemperature) ? cliOptions.aiTemperature : config.ai.temperature;
 
   return {
     dryRun: Boolean(cliOptions.dryRun),
@@ -86,7 +93,14 @@ function mergeOptions(cliOptions, config) {
     maxFilesPerCommit,
     typeOverrides: config.typeOverrides,
     ignorePatterns: config.ignorePatterns,
-    aiCommand: cliOptions.ai || (config.ai ? config.ai.command : null)
+    ai: {
+      enabled: aiEnabled,
+      provider: config.ai.provider,
+      model: cliOptions.aiModel || config.ai.model,
+      endpoint: cliOptions.aiEndpoint || config.ai.endpoint,
+      temperature: aiTemperature,
+      command: config.ai.command
+    }
   };
 }
 
@@ -146,6 +160,7 @@ async function maybeEditMessages(plan) {
 
     if (nextMessage && nextMessage.trim()) {
       commit.message = nextMessage.trim();
+      commit.manualOverride = true;
     }
   }
 }
@@ -161,23 +176,31 @@ async function confirmExecution(plan) {
   return proceed;
 }
 
-async function executePlan(plan, git, options) {
+async function executePlan(plan, git, options, llm) {
   for (const commit of plan) {
     const filePaths = commit.files.map((file) => file.path);
     const summaryLabel = `${commit.type}(${commit.scope})`;
 
-    if (options.dryRun) {
-      console.log(chalk.gray(`\n[DRY RUN] git add ${filePaths.join(' ')}`));
-      console.log(chalk.gray(`[DRY RUN] git commit -m "${commit.message}"`));
-      continue;
+    if (!options.dryRun) {
+      await git.stage(filePaths);
     }
 
-    await git.stage(filePaths);
     let message = commit.message;
 
-    if (options.aiCommand) {
-      const diff = await git.diff(filePaths);
-      message = await maybeGenerateAiMessage(options.aiCommand, diff, commit.message);
+    if (llm.isEnabled() && !commit.manualOverride) {
+      const diffOptions = !options.dryRun ? { cached: true } : undefined;
+      const diff = await git.diff(filePaths, diffOptions);
+      message = await llm.generateCommitMessage({
+        diff,
+        defaultMessage: commit.message,
+        commitMeta: commit
+      });
+    }
+
+    if (options.dryRun) {
+      console.log(chalk.gray(`\n[DRY RUN] git add ${filePaths.join(' ')}`));
+      console.log(chalk.gray(`[DRY RUN] git commit -m "${message}"`));
+      continue;
     }
 
     await git.commit(message);
@@ -193,6 +216,19 @@ function parseInteger(value, previous) {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed) || parsed <= 0) {
     throw new Error('Numeric options must be positive integers.');
+  }
+
+  return parsed;
+}
+
+function parseFloatOption(value, previous) {
+  if (value === undefined) {
+    return previous;
+  }
+
+  const parsed = Number.parseFloat(value);
+  if (Number.isNaN(parsed) || parsed < 0 || parsed > 1) {
+    throw new Error('Temperature must be a number between 0 and 1.');
   }
 
   return parsed;
