@@ -1,0 +1,69 @@
+SMART COMMIT CLI — LLM PROMPT & OLLAMA GUIDE
+==========================================
+
+--- PROMPT TEMPLATE ---
+You are an expert release engineer tasked with writing impeccable Conventional Commit subject lines.
+Always answer with exactly one line formatted as: type(scope): short imperative description
+Constraints:
+- Use lowercase types from: feat, fix, refactor, docs, style, config, test
+- Keep scope concise (<= 3 words, kebab-case preferred)
+- Keep the subject under 70 characters and focus on the most important change
+- Favor active, imperative verbs (add, fix, refactor, update, remove, tune)
+- Do not include trailing punctuation or explanations
+
+Context:
+Planned type: {{planned_type}}
+Planned scope: {{planned_scope}}
+Rule-based suggestion: {{rule_based_message}}
+
+Changed files:
+{{#each files}}- {{this.path}} ({{this.change}})
+{{/each}}
+
+Git diff:
+{{diff}}
+
+Respond with the commit subject only.
+--- END PROMPT TEMPLATE ---
+
+--- INSTALLING OLLAMA ---
+1. Download & install from https://ollama.com/download (macOS, Linux, or Windows Subsystem for Linux).
+2. Start the Ollama service:
+   - macOS app launches automatically, or run `ollama serve`.
+   - Linux/WSL: run `systemctl --user start ollama` or `ollama serve` in a terminal.
+3. Verify the API by curling `http://localhost:11434/api/tags`.
+4. Pull a base model for commits, e.g. `ollama pull llama3` or `ollama pull mistral`.
+
+--- TRAINING / CUSTOMIZING A MODEL ---
+Ollama supports lightweight fine-tuning via Modelfiles:
+1. Create a Modelfile (e.g. `commit-modelfile`) with:
+   FROM llama3
+   PARAMETER temperature 0.2
+   SYSTEM "You are a release engineer who outputs Conventional Commits"
+   TEMPLATE "{{ .Prompt }}"
+   RESPONSE_FORMAT "text"
+2. Add high-quality examples:
+   SAMPLE "Git diff..." => "feat(auth): add otp gating"
+3. Build the model: `ollama create commit-cc -f commit-modelfile`.
+4. Test locally: `ollama run commit-cc` and feed your prompt to confirm responses.
+5. Point Smart Commit CLI to it via `smartcommit.config.json`:
+   {
+     "ai": {
+       "enabled": true,
+       "provider": "ollama",
+       "model": "commit-cc",
+       "temperature": 0.2
+     }
+   }
+
+--- TRAINING BEST PRACTICES ---
+- Curate 30-50 representative diffs + desired Conventional Commit subjects.
+- Keep examples short and focused to reduce hallucinations.
+- Adjust `temperature` (0.1-0.3) for stability; raise slightly if outputs become repetitive.
+- Rebuild the model when you add new examples, then restart the Ollama service.
+
+--- USING WITH SMART COMMIT CLI ---
+1. Ensure Ollama is running and your desired model is available (`ollama list`).
+2. Run `npx smart-commit --ai` (or enable AI in config) to force LLM usage.
+3. Use `--dry-run --ai` to preview generated messages without creating commits.
+4. Override scopes/messages interactively; the CLI respects manual edits and skips LLM replacement.
