@@ -27,13 +27,18 @@ export function createGitService(cwd) {
     commit: async (message) => {
       await git.commit(message);
     },
-    diff: async (files) => {
+    diff: async (files, options = {}) => {
       if (!files.length) {
         return '';
       }
 
       try {
-        return await git.diff(['--', ...files]);
+        const args = [];
+        if (options.cached) {
+          args.push('--cached');
+        }
+        args.push('--', ...files);
+        return await git.diff(args);
       } catch (error) {
         console.warn(`Unable to collect diff for ${files.join(', ')}: ${error.message}`);
         return '';
