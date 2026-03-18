@@ -7,7 +7,7 @@ A mini Node.js CLI that inspects git status, groups related files, and generates
 - Detects staged, unstaged, and untracked files with status context
 - Classifies files into `feat`, `fix`, `refactor`, `style`, `docs`, `config`, and `test`
 - Groups files by type + scope (derived from folders) with optional chunking (`--max-files-per-commit`)
-- Generates Conventional Commit messages, with optional AI refinement using any shell-accessible LLM command
+- Generates Conventional Commit messages, optionally refined by a local Ollama model with graceful fallback
 - Interactive preview (toggle with `--no-interactive`), plus dry-run mode for verification
 - Config file support for overrides, ignore patterns, and defaults
 
@@ -35,8 +35,17 @@ npx smart-commit --no-include-staged
 # customize scope depth and commit size
 npx smart-commit --scope-depth 2 --max-files-per-commit 5
 
-# feed git diff to an AI helper that emits a single-line subject
-npx smart-commit --ai "openai api chats.create --model gpt-4o-mini"
+# preview AI-enhanced messages (falls back when Ollama is unavailable)
+npx smart-commit --dry-run --ai
+
+# force a specific model + temperature
+npx smart-commit --ai --ai-model llama3 --ai-temperature 0.1
+
+# point to a remote/local network Ollama host
+npx smart-commit --ai --ai-endpoint http://ollama.local:11434
+
+# disable AI even if enabled in config
+npx smart-commit --no-ai
 ```
 
 ### Example Session
@@ -73,12 +82,49 @@ Create `smartcommit.config.json` (or `.smartcommitrc` / `.smartcommitrc.json`) i
     { "pattern": "src/ui/.*\\.(ts|tsx)$", "type": "style", "scope": "ui" }
   ],
   "ai": {
-    "command": "bash scripts/commit-ai.sh"
+    "enabled": true,
+    "provider": "ollama",
+    "model": "llama3",
+    "endpoint": "http://localhost:11434",
+    "temperature": 0.2
   }
 }
 ```
 
 Pass `--config ./path/to/file` to load a different config.
+
+## Ollama Setup
+
+1. [Install Ollama](https://ollama.com/download) for your OS and ensure it is running (defaults to `http://localhost:11434`).
+2. Pull the model you want to use, for example `ollama pull llama3`.
+3. (Optional) Adjust `ai.model`, `ai.endpoint`, or `ai.temperature` in `smartcommit.config.json`.
+4. Run `npx smart-commit --ai` to force AI usage or rely on the config defaults.
+
+If Ollama is unreachable, the CLI logs a warning and reverts to the rule-based commit message so your workflow never blocks.
+
+## LLM Prompt Template
+
+The CLI sends a concise instruction to Ollama along with the git diff and planner metadata:
+
+```
+You are an expert release engineer who writes precise Conventional Commit subjects.
+Return exactly one line using the form type(scope): short description.
+Use lowercase types (feat, fix, refactor, docs, style, config, test).
+Keep it under 70 characters and prefer imperative verbs.
+
+Planned type: <type>
+Planned scope: <scope>
+Rule-based suggestion: <existing message>
+
+Changed files:
+- path/file.ts (modified)
+...
+
+Git diff:
+<full diff here>
+
+Respond with the commit subject only.
+```
 
 ## Project Structure
 
@@ -92,7 +138,7 @@ src/
   gitService.js         # wraps simple-git operations
   fileClassifier.js     # infers commit types/scopes
   commitPlanner.js      # groups files into commits
-  ai.js                 # optional external AI helper
+  llmService.js         # pluggable AI/Ollama integration layer
 ```
 
 ## Development Notes
