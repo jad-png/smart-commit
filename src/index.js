@@ -190,11 +190,7 @@ async function executePlan(plan, git, options, llm) {
     if (llm.isEnabled() && !commit.manualOverride) {
       const diffOptions = !options.dryRun ? { cached: true } : undefined;
       const diff = await git.diff(filePaths, diffOptions);
-      message = await llm.generateCommitMessage({
-        diff,
-        defaultMessage: commit.message,
-        commitMeta: commit
-      });
+      message = await llm.generateCommitMessage(diff, commit, commit.message);
     }
 
     if (options.dryRun) {
