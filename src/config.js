@@ -1,6 +1,15 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+const DEFAULT_AI_CONFIG = {
+  enabled: false,
+  provider: 'ollama',
+  model: 'llama3',
+  temperature: 0.2,
+  endpoint: 'http://localhost:11434',
+  command: null
+};
+
 const DEFAULT_CONFIG = {
   interactive: true,
   includeStaged: true,
@@ -8,7 +17,7 @@ const DEFAULT_CONFIG = {
   maxFilesPerCommit: Infinity,
   typeOverrides: [],
   ignorePatterns: [],
-  ai: { command: null }
+  ai: DEFAULT_AI_CONFIG
 };
 
 const CANDIDATE_FILES = ['smartcommit.config.json', '.smartcommitrc', '.smartcommitrc.json'];
@@ -47,7 +56,7 @@ function buildSearchQueue(explicitPath, cwd) {
 }
 
 function normalizeConfig(rawConfig = {}, sourcePath) {
-  const normalized = { ...DEFAULT_CONFIG, __source: sourcePath };
+  const normalized = { ...DEFAULT_CONFIG, ai: { ...DEFAULT_AI_CONFIG }, __source: sourcePath };
 
   if (typeof rawConfig.interactive === 'boolean') {
     normalized.interactive = rawConfig.interactive;
@@ -78,9 +87,7 @@ function normalizeConfig(rawConfig = {}, sourcePath) {
   }
 
   if (rawConfig.ai && typeof rawConfig.ai === 'object') {
-    normalized.ai = {
-      command: typeof rawConfig.ai.command === 'string' ? rawConfig.ai.command : null
-    };
+    normalized.ai = normalizeAiConfig(rawConfig.ai, normalized.ai);
   }
 
   return normalized;
@@ -119,6 +126,36 @@ function mapPattern(pattern) {
     console.warn(`Skipping invalid ignore pattern: ${pattern}`);
     return null;
   }
+}
+
+function normalizeAiConfig(rawAi, fallback) {
+  const next = { ...fallback };
+
+  if (typeof rawAi.enabled === 'boolean') {
+    next.enabled = rawAi.enabled;
+  }
+
+  if (typeof rawAi.provider === 'string' && rawAi.provider.trim()) {
+    next.provider = rawAi.provider.trim();
+  }
+
+  if (typeof rawAi.model === 'string' && rawAi.model.trim()) {
+    next.model = rawAi.model.trim();
+  }
+
+  if (typeof rawAi.endpoint === 'string' && rawAi.endpoint.trim()) {
+    next.endpoint = rawAi.endpoint.trim();
+  }
+
+  if (Number.isFinite(rawAi.temperature) && rawAi.temperature >= 0 && rawAi.temperature <= 1) {
+    next.temperature = rawAi.temperature;
+  }
+
+  if (typeof rawAi.command === 'string' && rawAi.command.trim()) {
+    next.command = rawAi.command.trim();
+  }
+
+  return next;
 }
 
 export const defaultConfig = DEFAULT_CONFIG;
