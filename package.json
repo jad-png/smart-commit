@@ -1,0 +1,29 @@
+{
+  "name": "smart-commit-cli",
+  "version": "0.1.0",
+  "description": "Mini CLI that analyzes git changes and creates smart grouped commits with descriptive messages",
+  "type": "module",
+  "bin": {
+    "smart-commit": "bin/smart-commit.js"
+  },
+  "scripts": {
+    "start": "node bin/smart-commit.js --help"
+  },
+  "keywords": [
+    "git",
+    "cli",
+    "commits",
+    "automation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "inquirer": "^9.2.14",
+    "simple-git": "^3.24.0"
+  }
+}
