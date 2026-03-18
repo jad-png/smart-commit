@@ -46,7 +46,8 @@ export function planCommits(files, options) {
         scope: group.scope,
         description: group.description,
         message,
-        files: chunk
+        files: chunk,
+        manualOverride: false
       });
     });
   });
