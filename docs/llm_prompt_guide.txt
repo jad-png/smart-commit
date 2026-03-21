@@ -28,7 +28,7 @@ Respond with the commit subject only.
 --- END PROMPT TEMPLATE ---
 
 --- DEFAULT MODEL ---
-GLM-4.7-Flash is the recommended base LLM for Smart Commit CLI guests because it delivers low-latency completions, stays light on local GPUs, and is tuned well for short commit subjects. Pull it once via `ollama pull glm-4.7-flash`, then set `model: "glm-4.7-flash"` (or leave the default config) to stay aligned with the project.
+Phi-3 (a.k.a. `phi3`) is the recommended base LLM for Smart Commit CLI guests because it is extremely lightweight, runs on modest GPUs/CPUs, and stays focused on concise commit subjects. Pull it once via `ollama pull phi3`, then set `model: "phi3"` (or leave the default config) to stay aligned with the project.
 
 --- INSTALLING OLLAMA ---
 1. Download & install from https://ollama.com/download (macOS, Linux, or Windows Subsystem for Linux).
@@ -36,12 +36,12 @@ GLM-4.7-Flash is the recommended base LLM for Smart Commit CLI guests because it
    - macOS app launches automatically, or run `ollama serve`.
    - Linux/WSL: run `systemctl --user start ollama` or `ollama serve` in a terminal.
 3. Verify the API by curling `http://localhost:11434/api/tags`.
-4. Pull the default model: `ollama pull glm-4.7-flash` (fast, efficient, commit-friendly). If you must experiment, grab your preferred model in addition, but keep `glm-4.7-flash` installed for parity.
+4. Pull the default model: `ollama pull phi3` (tiny, efficient, commit-friendly). If you must experiment, grab your preferred model in addition, but keep `phi3` installed for parity.
 
 --- TRAINING / CUSTOMIZING A MODEL ---
 Ollama supports lightweight fine-tuning via Modelfiles:
 1. Create a Modelfile (e.g. `commit-modelfile`) with:
-   FROM glm-4.7-flash
+   FROM phi3
    PARAMETER temperature 0.2
    SYSTEM "You are a release engineer who outputs Conventional Commits"
    TEMPLATE "{{ .Prompt }}"
@@ -63,7 +63,7 @@ Ollama supports lightweight fine-tuning via Modelfiles:
 --- SWAPPING MODELS SAFELY ---
 - Stay compatible by keeping responses short/plain-text and the same prompt template. For Ollama, pull the alternate model (e.g. `ollama pull llama3`), then switch `model` in `smartcommit.config.json` or via `SMART_COMMIT_MODEL=llama3 npx smart-commit --ai`.
 - Other local providers (LM Studio, OpenAI-compatible bridges, etc.) can be wired in through `smartcommit.config.json` as long as they expose a chat/completions API that mirrors the same contract.
-- Revert to GLM-4.7-Flash whenever unsure; it remains the shared baseline for repo guests.
+- Revert to Phi-3 whenever unsure; it remains the shared baseline for repo guests.
 
 --- TRAINING BEST PRACTICES ---
 - Curate 30-50 representative diffs + desired Conventional Commit subjects.
