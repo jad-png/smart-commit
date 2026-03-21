@@ -7,7 +7,8 @@
     "smart-commit": "bin/smart-commit.js"
   },
   "scripts": {
-    "start": "node bin/smart-commit.js --help"
+    "start": "node bin/smart-commit.js --help",
+    "test": "node --test"
   },
   "keywords": [
     "git",
