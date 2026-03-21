@@ -5,7 +5,7 @@ const DEFAULT_AI_CONFIG = {
   enabled: false,
   provider: 'ollama',
   model: 'phi3',
-  temperature: 0.2,
+  temperature: 0.1,
   endpoint: 'http://localhost:11434',
   command: null
 };
