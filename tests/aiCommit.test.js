@@ -80,6 +80,17 @@ describe('AI commit subject generation', () => {
     );
   });
 
+  it('rejects code-like descriptions and accepts corrected human summary', async () => {
+    enqueueResponse('fix(cli): return validateCommit(input)');
+    enqueueResponse('fix(cli): improve commit subject validation');
+    const llm = createLlmService({ enabled: true, provider: 'ollama', model: 'phi3' });
+
+    const result = await llm.generateCommitMessage(SAMPLE_DIFF, BASE_META);
+
+    assert.equal(result, 'fix(cli): improve commit subject validation');
+    assert.equal(prompts.length, 2);
+  });
+
   it('throws when the diff context is empty', async () => {
     const llm = createLlmService({ enabled: true, provider: 'ollama', model: 'phi3' });
 
