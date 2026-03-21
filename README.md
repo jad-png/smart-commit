@@ -7,6 +7,7 @@ A mini Node.js CLI that inspects git status, groups related files, and generates
 - Detects staged, unstaged, and untracked files with status context
 - Classifies files into `feat`, `fix`, `refactor`, `style`, `docs`, `config`, and `test`
 - Groups files by type + scope (derived from folders) with optional chunking (`--max-files-per-commit`)
+- Analyzes up to 100 lines of each file's git diff to summarize what changed before forming the rule-based commit hint
 - Generates Conventional Commit messages through a mandatory local Ollama model (AI-first) with strict Conventional Commit validation
 - Truncates noisy diffs before prompting Phi-3 to keep tokens focused on the most relevant changes
 - Interactive preview (toggle with `--no-interactive`), plus dry-run mode for verification
