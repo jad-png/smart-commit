@@ -190,7 +190,13 @@ async function executePlan(plan, git, options, llm) {
     if (llm.isEnabled() && !commit.manualOverride) {
       const diffOptions = !options.dryRun ? { cached: true } : undefined;
       const diff = await git.diff(filePaths, diffOptions);
-      message = await llm.generateCommitMessage(diff, commit, commit.message);
+      const commitMeta = buildCommitMeta(commit);
+
+      try {
+        message = await llm.generateCommitMessage(diff, commitMeta);
+      } catch (error) {
+        throw new Error(`LLM failed for commit #${commit.id}: ${error.message}`);
+      }
     }
 
     if (options.dryRun) {
@@ -228,4 +234,16 @@ function parseFloatOption(value, previous) {
   }
 
   return parsed;
+}
+
+function buildCommitMeta(commit) {
+  return {
+    type: commit.type,
+    scope: commit.scope,
+    plannedType: commit.plannedType || commit.type,
+    plannedScope: commit.plannedScope || commit.scope,
+    files: commit.files.map((file) => ({ path: file.path, change: file.change })),
+    description: commit.description,
+    message: commit.message
+  };
 }
