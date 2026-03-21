@@ -1,44 +1,63 @@
 import { spawn } from 'node:child_process';
 import chalk from 'chalk';
 
-const CONVENTIONAL_COMMIT_PATTERN = /^[a-z]+\([^\)]+\):\s.+$/;
+const COMMIT_PATTERN = /^(feat|fix|refactor|docs|style|config|test)\(.+\): .+/;
 const REQUEST_TIMEOUT_MS = 15000;
+const MAX_SUBJECT_LENGTH = 72;
 
 export function createLlmService(config = {}) {
   const safeConfig = {
     enabled: Boolean(config.enabled),
     provider: config.provider || 'ollama',
     model: config.model || 'phi3',
-    temperature: typeof config.temperature === 'number' ? config.temperature : 0.2,
+    temperature: typeof config.temperature === 'number' ? config.temperature : 0.1,
     endpoint: config.endpoint || 'http://localhost:11434',
     command: config.command || null
   };
 
-  async function generateCommitMessage(diff, commitMeta, defaultMessage) {
+  async function generateCommitMessage(diff, commitMeta = {}) {
     if (!safeConfig.enabled) {
-      return defaultMessage;
+      throw new Error('AI commit generation is disabled.');
     }
 
     if (!diff || !diff.trim()) {
-      console.warn(chalk.yellow('LLM: empty diff supplied, falling back to rule-based message.'));
-      return defaultMessage;
+      throw new Error('LLM requires diff context to craft the commit subject.');
     }
 
-    try {
-      if (safeConfig.provider === 'ollama') {
-        return await generateViaOllama(diff, defaultMessage, commitMeta, safeConfig);
-      }
+    const prompt = buildPrompt(commitMeta, diff);
+    const firstTry = await dispatchPrompt(prompt);
+    const cleanedFirst = cleanCommitSubject(firstTry);
 
-      if (safeConfig.provider === 'command' && safeConfig.command) {
-        return await generateViaCommand(diff, defaultMessage, safeConfig.command);
-      }
-
-      console.warn(chalk.yellow(`LLM: Unknown provider "${safeConfig.provider}". Falling back.`));
-      return defaultMessage;
-    } catch (error) {
-      console.warn(chalk.yellow(`LLM provider failed: ${error.message}. Falling back to rule-based message.`));
-      return defaultMessage;
+    if (isValidCommitSubject(cleanedFirst)) {
+      return enforceLength(cleanedFirst);
     }
+
+    const correctionPrompt = [
+      prompt,
+      '',
+      'Correction: Respond with exactly one line formatted as type(scope): description using lowercase types only. Do not add commentary.'
+    ].join('\n');
+
+    const secondTry = await dispatchPrompt(correctionPrompt);
+    const cleanedSecond = cleanCommitSubject(secondTry);
+
+    if (isValidCommitSubject(cleanedSecond)) {
+      return enforceLength(cleanedSecond);
+    }
+
+    throw new Error('LLM returned an invalid commit subject after a correction attempt.');
+  }
+
+  function dispatchPrompt(prompt) {
+    if (safeConfig.provider === 'ollama') {
+      return generateViaOllama(prompt, safeConfig);
+    }
+
+    if (safeConfig.provider === 'command' && safeConfig.command) {
+      return generateViaCommand(prompt, safeConfig.command);
+    }
+
+    throw new Error(`Unknown LLM provider "${safeConfig.provider}".`);
   }
 
   return {
@@ -47,7 +66,7 @@ export function createLlmService(config = {}) {
   };
 }
 
-async function generateViaOllama(diff, fallback, commitMeta, config) {
+async function generateViaOllama(prompt, config) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -58,7 +77,7 @@ async function generateViaOllama(diff, fallback, commitMeta, config) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: config.model,
-        prompt: buildPrompt(commitMeta, diff),
+        prompt,
         stream: false,
         options: { temperature: clampTemperature(config.temperature) }
       }),
@@ -70,7 +89,7 @@ async function generateViaOllama(diff, fallback, commitMeta, config) {
     }
 
     const payload = await response.json();
-    return sanitizeCommitMessage(payload?.response, fallback);
+    return payload?.response;
   } catch (error) {
     if (error.name === 'AbortError') {
       throw new Error('timed out while contacting Ollama');
@@ -81,8 +100,8 @@ async function generateViaOllama(diff, fallback, commitMeta, config) {
   }
 }
 
-function generateViaCommand(diff, fallback, command) {
-  return new Promise((resolve) => {
+function generateViaCommand(prompt, command) {
+  return new Promise((resolve, reject) => {
     const child = spawn(command, { shell: true });
     let output = '';
     let errorOutput = '';
@@ -97,75 +116,80 @@ function generateViaCommand(diff, fallback, command) {
 
     child.on('close', (code) => {
       if (code === 0) {
-        const cleaned = sanitizeCommitMessage(output, fallback);
-        if (cleaned) {
-          resolve(cleaned);
-          return;
-        }
+        resolve(output);
+        return;
       }
 
-      if (errorOutput) {
-        console.warn(chalk.yellow(`LLM command stderr: ${errorOutput.trim()}`));
-      }
-
-      resolve(fallback);
+      const errorMessage = errorOutput.trim() || `LLM command exited with code ${code}`;
+      reject(new Error(errorMessage));
     });
 
-    child.on('error', () => resolve(fallback));
-    child.stdin.write(diff);
+    child.on('error', (error) => reject(error));
+    child.stdin.write(prompt);
     child.stdin.end();
   });
 }
 
 function buildPrompt(commitMeta, diff) {
-  const fileList = (commitMeta?.files || [])
-    .map((file) => `- ${file.path} (${file.change})`)
-    .join('\n');
+  const files = Array.isArray(commitMeta?.files) ? commitMeta.files : [];
+  const fileList = files.length
+    ? files.map((file) => `- ${file.path} (${file.change || 'modified'})`).join('\n')
+    : '- (files omitted)';
+  const filesLine = files.length ? `Files:\n${fileList}` : `Files: ${fileList}`;
 
   return [
-    'You are an expert release engineer who writes precise Conventional Commit subjects.',
-    'Return exactly one line using the form type(scope): short description.',
-    'Use lowercase types (feat, fix, refactor, docs, style, config, test).',
-    'Keep it under 70 characters and prefer imperative verbs.',
+    '[Context]',
+    `Type: ${commitMeta?.plannedType || commitMeta?.type || 'unknown'}`,
+    `Scope: ${commitMeta?.plannedScope || commitMeta?.scope || 'root'}`,
+    filesLine,
     '',
-    `Planned type: ${commitMeta?.type || 'unknown'}`,
-    `Planned scope: ${commitMeta?.scope || 'root'}`,
-    `Rule-based suggestion: ${commitMeta?.message || 'n/a'}`,
+    '[Diff]',
+    diff.trim(),
     '',
-    'Changed files:',
-    fileList || '- (files omitted)',
-    '',
-    'Git diff:',
-    diff,
-    '',
-    'Respond with the commit subject only.'
+    'Instruction: Write the commit subject line following the type(scope): description format. Use imperative mood. Respond ONLY with the line.'
   ].join('\n');
 }
 
-function sanitizeCommitMessage(raw, fallback) {
+function cleanCommitSubject(raw) {
   if (!raw) {
-    return fallback;
+    return null;
   }
 
-  const candidate = raw
+  const candidateLine = raw
     .split('\n')
     .map((line) => line.trim())
     .find((line) => line.length > 0);
 
+  if (!candidateLine) {
+    return null;
+  }
+
+  let cleaned = candidateLine.replace(/`/g, '').trim();
+  cleaned = cleaned.replace(/^output[:\-]?\s*/i, '').trim();
+  cleaned = cleaned.replace(/\.+$/, '').trim();
+
+  return cleaned || null;
+}
+
+function isValidCommitSubject(candidate) {
   if (!candidate) {
-    return fallback;
+    return false;
+  }
+  return COMMIT_PATTERN.test(candidate);
+}
+
+function enforceLength(candidate) {
+  if (candidate.length <= MAX_SUBJECT_LENGTH) {
+    return candidate;
   }
 
-  if (!CONVENTIONAL_COMMIT_PATTERN.test(candidate)) {
-    return fallback;
-  }
-
-  return candidate.length > 120 ? `${candidate.slice(0, 117)}...` : candidate;
+  console.warn(chalk.yellow(`LLM subject exceeded ${MAX_SUBJECT_LENGTH} characters. Truncating.`));
+  return candidate.slice(0, MAX_SUBJECT_LENGTH);
 }
 
 function clampTemperature(value) {
   if (!Number.isFinite(value)) {
-    return 0.2;
+    return 0.1;
   }
   return Math.min(Math.max(value, 0), 1);
 }
