@@ -1,6 +1,10 @@
 import path from 'node:path';
 import simpleGit from 'simple-git';
 
+const MAX_DIFF_LINES = 100;
+const MAX_DIFF_BYTES = 4096;
+const DIFF_EXCLUDED_FILES = ['package-lock.json', 'pnpm-lock.yaml'];
+
 export function createGitService(cwd) {
   const git = simpleGit({ baseDir: cwd });
 
@@ -32,13 +36,25 @@ export function createGitService(cwd) {
         return '';
       }
 
+      const filteredTargets = filterDiffTargets(files);
+      const excludedTargets = collectExcludedFiles(files);
+
+      if (!filteredTargets.length) {
+        return formatExcludedDiffSummary(excludedTargets);
+      }
+
       try {
         const args = [];
         if (options.cached) {
           args.push('--cached');
         }
-        args.push('--', ...files);
-        return await git.diff(args);
+        args.push('--', ...filteredTargets);
+        const rawDiff = await git.diff(args);
+        const truncated = truncateDiff(rawDiff);
+        if (truncated.trim()) {
+          return truncated;
+        }
+        return formatExcludedDiffSummary(excludedTargets);
       } catch (error) {
         console.warn(`Unable to collect diff for ${files.join(', ')}: ${error.message}`);
         return '';
@@ -146,4 +162,99 @@ function describeStatus(change, staged, hasUnstaged, partiallyStaged) {
   }
 
   return change;
+}
+
+function filterDiffTargets(files = []) {
+  return files.filter((filePath) => !shouldExcludeFromDiff(filePath));
+}
+
+function collectExcludedFiles(files = []) {
+  return files.filter((filePath) => shouldExcludeFromDiff(filePath));
+}
+
+function formatExcludedDiffSummary(excluded = []) {
+  if (!excluded.length) {
+    return '';
+  }
+
+  const lines = excluded.map((filePath) => `- ${filePath} (diff omitted)`).join('\n');
+  return `Diff omitted for excluded files:\n${lines}`;
+}
+
+function shouldExcludeFromDiff(filePath = '') {
+  const normalized = filePath.replace(/\\/g, '/');
+  const lower = normalized.toLowerCase();
+
+  if (DIFF_EXCLUDED_FILES.some((fileName) => lower.endsWith(`/${fileName}`) || lower === fileName)) {
+    return true;
+  }
+
+  return lower.endsWith('.map');
+}
+
+function truncateDiff(rawDiff) {
+  if (!rawDiff) {
+    return '';
+  }
+
+  const chunks = splitDiffByFile(rawDiff);
+  if (!chunks.length) {
+    return truncateChunk(rawDiff);
+  }
+
+  return chunks.map(truncateChunk).join('\n');
+}
+
+function splitDiffByFile(rawDiff) {
+  const regex = /^diff --git [^\n]+\n(?:[\s\S]*?)(?=^diff --git |\Z)/gm;
+  const chunks = [];
+  let match;
+
+  while ((match = regex.exec(rawDiff)) !== null) {
+    chunks.push(match[0]);
+  }
+
+  return chunks;
+}
+
+function truncateChunk(chunk) {
+  if (!chunk) {
+    return '';
+  }
+
+  let truncated = chunk;
+  let wasTruncated = false;
+
+  const lines = chunk.split('\n');
+  if (lines.length > MAX_DIFF_LINES) {
+    truncated = lines.slice(0, MAX_DIFF_LINES).join('\n');
+    wasTruncated = true;
+  }
+
+  if (Buffer.byteLength(truncated, 'utf8') > MAX_DIFF_BYTES) {
+    truncated = truncateByBytes(truncated, MAX_DIFF_BYTES);
+    wasTruncated = true;
+  }
+
+  if (wasTruncated) {
+    return `${truncated}\n... [diff truncated]\n`;
+  }
+
+  return truncated;
+}
+
+function truncateByBytes(text, byteLimit) {
+  let bytes = 0;
+  let result = '';
+
+  for (const char of text) {
+    const charBytes = Buffer.byteLength(char, 'utf8');
+    if (bytes + charBytes > byteLimit) {
+      break;
+    }
+    result += char;
+    bytes += charBytes;
+  }
+
+  return result;
 }
