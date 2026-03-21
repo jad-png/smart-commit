@@ -59,6 +59,28 @@ export function createGitService(cwd) {
         console.warn(`Unable to collect diff for ${files.join(', ')}: ${error.message}`);
         return '';
       }
+    },
+    diffSingle: async (filePath, options = {}) => {
+      if (!filePath) {
+        return '';
+      }
+
+      try {
+        const args = [];
+        if (options.cached) {
+          args.push('--cached');
+        }
+        args.push('--', filePath);
+        const rawDiff = await git.diff(args);
+        return truncateChunk(rawDiff, {
+          maxLines: options.maxLines ?? MAX_DIFF_LINES,
+          maxBytes: options.maxBytes ?? MAX_DIFF_BYTES,
+          appendMarker: options.appendMarker ?? false
+        });
+      } catch (error) {
+        console.warn(`Unable to collect diff for ${filePath}: ${error.message}`);
+        return '';
+      }
     }
   };
 }
@@ -217,7 +239,13 @@ function splitDiffByFile(rawDiff) {
   return chunks;
 }
 
-function truncateChunk(chunk) {
+function truncateChunk(chunk, options = {}) {
+  const {
+    maxLines = MAX_DIFF_LINES,
+    maxBytes = MAX_DIFF_BYTES,
+    appendMarker = true
+  } = options;
+
   if (!chunk) {
     return '';
   }
@@ -226,17 +254,17 @@ function truncateChunk(chunk) {
   let wasTruncated = false;
 
   const lines = chunk.split('\n');
-  if (lines.length > MAX_DIFF_LINES) {
-    truncated = lines.slice(0, MAX_DIFF_LINES).join('\n');
+  if (lines.length > maxLines) {
+    truncated = lines.slice(0, maxLines).join('\n');
     wasTruncated = true;
   }
 
-  if (Buffer.byteLength(truncated, 'utf8') > MAX_DIFF_BYTES) {
-    truncated = truncateByBytes(truncated, MAX_DIFF_BYTES);
+  if (Buffer.byteLength(truncated, 'utf8') > maxBytes) {
+    truncated = truncateByBytes(truncated, maxBytes);
     wasTruncated = true;
   }
 
-  if (wasTruncated) {
+  if (wasTruncated && appendMarker) {
     return `${truncated}\n... [diff truncated]\n`;
   }
 
