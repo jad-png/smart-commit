@@ -42,6 +42,8 @@ export function planCommits(files, options) {
 
       plan.push({
         id: counter++,
+        plannedType: group.type,
+        plannedScope: group.scope,
         type: group.type,
         scope: group.scope,
         description: group.description,
