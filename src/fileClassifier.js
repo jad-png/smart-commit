@@ -8,33 +8,40 @@ const TEST_KEYWORDS = ['__tests__', 'tests', 'test', 'spec', 'cypress'];
 const DOC_KEYWORDS = ['docs', 'documentation'];
 const STYLE_KEYWORDS = ['styles', 'css', 'theme'];
 const CONFIG_KEYWORDS = ['config', 'settings', 'env'];
+const STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'into', 'this', 'that', 'these', 'those', 'true', 'false',
+  'null', 'undefined', 'return', 'const', 'let', 'var', 'function', 'class', 'import', 'export',
+  'default', 'async', 'await', 'public', 'private', 'protected', 'static', 'new', 'extends',
+  'value', 'data', 'item', 'items', 'file', 'files', 'line', 'lines', 'type', 'scope', 'model'
+]);
 
 const TYPE_TEMPLATES = {
-  feat: (scope, noun) => `add ${noun || scope} capability`,
-  fix: (scope, noun) => `fix ${noun || scope} flow`,
-  refactor: (scope, noun) => `refine ${noun || scope} structure`,
-  style: (scope, noun) => `tune ${noun || scope} styling`,
-  docs: (scope, noun) => `update ${noun || scope} docs`,
-  config: (scope, noun) => `update ${noun || scope} config`,
-  test: (scope, noun) => `expand ${noun || scope} tests`
+  feat: (scope, topic) => `add ${topic || scope} capability`,
+  fix: (scope, topic) => `fix ${topic || scope} flow`,
+  refactor: (scope, topic) => `refine ${topic || scope} structure`,
+  style: (scope, topic) => `tune ${topic || scope} styling`,
+  docs: (scope, topic) => `update ${topic || scope} docs`,
+  config: (scope, topic) => `update ${topic || scope} config`,
+  test: (scope, topic) => `expand ${topic || scope} tests`
 };
 
-export function classifyFile(file, options) {
+export async function classifyFile(file, options) {
   const overrideType = getOverrideType(file.path, options.typeOverrides);
   const normalizedPath = file.path.replace(/\\/g, '/');
   const ext = path.posix.extname(normalizedPath).toLowerCase();
+  const diffPreview = file.diffPreview || '';
+  const contentTopic = deriveContentTopic(diffPreview);
 
-  const explicitType = overrideType || inferType(normalizedPath, ext, file);
+  const explicitType = overrideType || inferType(normalizedPath, ext, file, diffPreview);
   const scope = normalizeScope(normalizedPath, options.scopeDepth);
-  const noun = deriveNoun(normalizedPath, file.change);
   const template = TYPE_TEMPLATES[explicitType] || (() => `update ${scope}`);
-  const description = template(scope, noun);
+  const description = template(scope, contentTopic);
 
   return {
     type: explicitType,
     scope,
     description,
-    noun
+    noun: contentTopic
   };
 }
 
@@ -47,20 +54,20 @@ function getOverrideType(filePath, overrides = []) {
   return null;
 }
 
-function inferType(filePath, ext, fileMeta) {
-  if (isDocs(filePath, ext)) {
+function inferType(filePath, ext, fileMeta, diffPreview) {
+  if (isDocs(filePath, ext) || looksLikeDocs(diffPreview)) {
     return 'docs';
   }
 
-  if (isStyle(filePath, ext)) {
+  if (isStyle(filePath, ext) || looksLikeStyle(diffPreview)) {
     return 'style';
   }
 
-  if (isConfig(filePath, ext)) {
+  if (isConfig(filePath, ext) || looksLikeConfig(diffPreview)) {
     return 'config';
   }
 
-  if (isTest(filePath, ext)) {
+  if (isTest(filePath, ext) || looksLikeTest(diffPreview)) {
     return 'test';
   }
 
@@ -97,15 +104,147 @@ function dropSourceFolder(segments) {
   return segments;
 }
 
-function deriveNoun(filePath, change) {
-  const ext = path.posix.extname(filePath).toLowerCase();
-  const base = path.posix.basename(filePath).replace(ext, '');
-
-  if (change === 'test' || isTest(filePath, ext)) {
-    return `${base} tests`;
+function deriveContentTopic(diff) {
+  if (!diff) {
+    return null;
   }
 
-  return base;
+  const addedLines = [];
+  const removedLines = [];
+  const changedLines = diff
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length && !isDiffMetadata(line));
+
+  changedLines.forEach((line) => {
+    if (line.startsWith('+')) {
+      const value = line.slice(1).trim();
+      if (value && !isIgnorableLine(value)) {
+        addedLines.push(value);
+      }
+      return;
+    }
+
+    if (line.startsWith('-')) {
+      const value = line.slice(1).trim();
+      if (value && !isIgnorableLine(value)) {
+        removedLines.push(value);
+      }
+    }
+  });
+
+  const intent = inferIntent(addedLines, removedLines);
+  const keywords = extractTopKeywords([...addedLines, ...removedLines]);
+
+  if (!keywords.length) {
+    return intent || null;
+  }
+
+  const topic = keywords.slice(0, 3).join(' and ');
+  return intent ? `${intent} ${topic}` : topic;
+}
+
+function isIgnorableLine(line) {
+  const COMMENT_PREFIXES = ['//', '/*', '*', '#', '--', '<!--'];
+  return COMMENT_PREFIXES.some((prefix) => line.startsWith(prefix));
+}
+
+function truncateWords(text, maxWords) {
+  const words = text.split(' ');
+  if (words.length <= maxWords) {
+    return text;
+  }
+  return words.slice(0, maxWords).join(' ');
+}
+
+function looksLikeDocs(diff = '') {
+  return /(#[#\s]|\+\s*#|\-\s*#)/.test(diff);
+}
+
+function looksLikeStyle(diff = '') {
+  return /\b(color|font|display|flex|grid|margin|padding)\b/i.test(diff);
+}
+
+function looksLikeConfig(diff = '') {
+  return /"?(name|version|config|setting|env)"?\s*[:=]/i.test(diff);
+}
+
+function looksLikeTest(diff = '') {
+  return /(describe\(|it\(|test\(|expect\()/i.test(diff);
+}
+
+function inferIntent(addedLines, removedLines) {
+  const addedCount = addedLines.length;
+  const removedCount = removedLines.length;
+
+  if (addedCount > 0 && removedCount === 0) {
+    return 'new';
+  }
+
+  if (removedCount > 0 && addedCount === 0) {
+    return 'legacy';
+  }
+
+  if (addedCount > 0 && removedCount > 0) {
+    return 'update';
+  }
+
+  return null;
+}
+
+function extractTopKeywords(lines = []) {
+  const weights = new Map();
+
+  lines.forEach((line) => {
+    const normalized = line
+      .replace(/['"`]/g, ' ')
+      .replace(/[^a-zA-Z0-9_\-\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!normalized) {
+      return;
+    }
+
+    splitIdentifiers(normalized).forEach((word) => {
+      const lower = word.toLowerCase();
+      if (!isKeywordCandidate(lower)) {
+        return;
+      }
+      weights.set(lower, (weights.get(lower) || 0) + 1);
+    });
+  });
+
+  return [...weights.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([word]) => word);
+}
+
+function splitIdentifiers(text) {
+  return text
+    .split(' ')
+    .flatMap((token) => token.split(/[_-]/g))
+    .flatMap((token) => token.split(/(?=[A-Z])/g))
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function isKeywordCandidate(word) {
+  if (!word || word.length < 3 || word.length > 20) {
+    return false;
+  }
+
+  if (/^\d+$/.test(word)) {
+    return false;
+  }
+
+  return !STOPWORDS.has(word);
+}
+
+function isDiffMetadata(line) {
+  const META_PREFIXES = ['diff --git', 'index ', '---', '+++', '@@'];
+  return META_PREFIXES.some((prefix) => line.startsWith(prefix));
 }
 
 function isDocs(filePath, ext) {
