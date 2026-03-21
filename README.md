@@ -39,7 +39,7 @@ npx smart-commit --scope-depth 2 --max-files-per-commit 5
 npx smart-commit --dry-run --ai
 
 # force a specific model + temperature
-npx smart-commit --ai --ai-model llama3 --ai-temperature 0.1
+npx smart-commit --ai --ai-model glm-4.7-flash --ai-temperature 0.1
 
 # point to a remote/local network Ollama host
 npx smart-commit --ai --ai-endpoint http://ollama.local:11434
@@ -84,7 +84,7 @@ Create `smartcommit.config.json` (or `.smartcommitrc` / `.smartcommitrc.json`) i
   "ai": {
     "enabled": true,
     "provider": "ollama",
-    "model": "llama3",
+      "model": "glm-4.7-flash",
     "endpoint": "http://localhost:11434",
     "temperature": 0.2
   }
@@ -96,7 +96,7 @@ Pass `--config ./path/to/file` to load a different config.
 ## Ollama Setup
 
 1. [Install Ollama](https://ollama.com/download) for your OS and ensure it is running (defaults to `http://localhost:11434`).
-2. Pull the model you want to use, for example `ollama pull llama3`.
+2. Pull the recommended base model: `ollama pull glm-4.7-flash` (fast, efficient, commit-focused).
 3. (Optional) Adjust `ai.model`, `ai.endpoint`, or `ai.temperature` in `smartcommit.config.json`.
 4. Run `npx smart-commit --ai` to force AI usage or rely on the config defaults.
 5. Need the full walkthrough? See [docs/llm_prompt_guide.txt](docs/llm_prompt_guide.txt) for model recommendations, prompt templates, and advanced Ollama configuration.
