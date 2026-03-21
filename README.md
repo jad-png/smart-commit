@@ -99,6 +99,7 @@ Pass `--config ./path/to/file` to load a different config.
 2. Pull the model you want to use, for example `ollama pull llama3`.
 3. (Optional) Adjust `ai.model`, `ai.endpoint`, or `ai.temperature` in `smartcommit.config.json`.
 4. Run `npx smart-commit --ai` to force AI usage or rely on the config defaults.
+5. Need the full walkthrough? See [docs/llm_prompt_guide.txt](docs/llm_prompt_guide.txt) for model recommendations, prompt templates, and advanced Ollama configuration.
 
 If Ollama is unreachable, the CLI logs a warning and reverts to the rule-based commit message so your workflow never blocks.
 
