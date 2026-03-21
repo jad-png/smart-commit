@@ -3,34 +3,25 @@ SMART COMMIT CLI — LLM PROMPT & OLLAMA GUIDE
 ==========================================
 
 --- PROMPT TEMPLATE ---
-You are an expert release engineer tasked with writing impeccable Conventional Commit subject lines.
-Always answer with exactly one line formatted as: type(scope): short imperative description
-Constraints:
-- Use lowercase types from: feat, fix, refactor, docs, style, config, test
-- Keep scope concise (<= 3 words, kebab-case preferred)
-- Keep the subject under 70 characters and focus on the most important change
-- Favor active, imperative verbs (add, fix, refactor, update, remove, tune)
-- Do not include trailing punctuation or explanations
-
-Context:
-Planned type: {{planned_type}}
-Planned scope: {{planned_scope}}
-Rule-based suggestion: {{rule_based_message}}
-
-Changed files:
+[Context]
+Type: {{planned_type}}
+Scope: {{planned_scope}}
+Files:
+{{#if files.length}}
 {{#each files}}- {{this.path}} ({{this.change}})
 {{/each}}
+{{else}}- (files omitted)
+{{/if}}
 
-Git diff:
+[Diff]
 {{diff}}
 
-Respond with the commit subject only.
+Instruction: Write the commit subject line following the type(scope): description format. Use imperative mood. Respond ONLY with the line.
 --- END PROMPT TEMPLATE ---
 
 --- DEFAULT MODEL ---
 Phi-3 (a.k.a. `phi3`) is the recommended base LLM for Smart Commit CLI guests because it is extremely lightweight, runs on modest GPUs/CPUs, and stays focused on concise commit subjects. Pull it once via `ollama pull phi3`, then set `model: "phi3"` (or leave the default config) to stay aligned with the project.
 
---- INSTALLING OLLAMA ---
 1. Download & install from https://ollama.com/download (macOS, Linux, or Windows Subsystem for Linux).
 2. Start the Ollama service:
    - macOS app launches automatically, or run `ollama serve`.
@@ -38,7 +29,6 @@ Phi-3 (a.k.a. `phi3`) is the recommended base LLM for Smart Commit CLI guests be
 3. Verify the API by curling `http://localhost:11434/api/tags`.
 4. Pull the default model: `ollama pull phi3` (tiny, efficient, commit-friendly). If you must experiment, grab your preferred model in addition, but keep `phi3` installed for parity.
 
---- TRAINING / CUSTOMIZING A MODEL ---
 Ollama supports lightweight fine-tuning via Modelfiles:
 1. Create a Modelfile (e.g. `commit-modelfile`) with:
    FROM phi3
@@ -60,7 +50,6 @@ Ollama supports lightweight fine-tuning via Modelfiles:
      }
    }
 
---- SWAPPING MODELS SAFELY ---
 - Stay compatible by keeping responses short/plain-text and the same prompt template. For Ollama, pull the alternate model (e.g. `ollama pull llama3`), then switch `model` in `smartcommit.config.json` or via `SMART_COMMIT_MODEL=llama3 npx smart-commit --ai`.
 - Other local providers (LM Studio, OpenAI-compatible bridges, etc.) can be wired in through `smartcommit.config.json` as long as they expose a chat/completions API that mirrors the same contract.
 - Revert to Phi-3 whenever unsure; it remains the shared baseline for repo guests.
@@ -71,8 +60,13 @@ Ollama supports lightweight fine-tuning via Modelfiles:
 - Adjust `temperature` (0.1-0.3) for stability; raise slightly if outputs become repetitive.
 - Rebuild the model when you add new examples, then restart the Ollama service.
 
---- USING WITH SMART COMMIT CLI ---
 1. Ensure Ollama is running and your desired model is available (`ollama list`).
-2. Run `npx smart-commit --ai` (or enable AI in config) to force LLM usage.
-3. Use `--dry-run --ai` to preview generated messages without creating commits.
-4. Override scopes/messages interactively; the CLI respects manual edits and skips LLM replacement.
+2. Run `npx smart-commit` (AI defaults to on). Use `--no-ai` only if you must bypass the model.
+3. Use `--dry-run` to preview generated messages without creating commits.
+4. Override scopes/messages interactively; manual edits bypass the LLM when you confirm.
+
+--- GUARDRAILS & VALIDATION ---
+- Regex enforcement: `/^(feat|fix|refactor|docs|style|config|test)\(.+\): .+/`.
+- Automatic correction prompt if the first response is invalid, otherwise the CLI aborts.
+- Responses are stripped of backticks, `Output:` prefixes, and trailing punctuation, then truncated to 72 chars with a warning.
+- Git diffs are truncated per file (first 100 lines or 4KB) and noisy lock/map files are omitted to keep Phi-3 focused.
