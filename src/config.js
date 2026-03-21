@@ -4,7 +4,7 @@ import path from 'node:path';
 const DEFAULT_AI_CONFIG = {
   enabled: false,
   provider: 'ollama',
-  model: 'llama3',
+  model: 'glm-4.7-flash',
   temperature: 0.2,
   endpoint: 'http://localhost:11434',
   command: null
