@@ -8,7 +8,7 @@ export function createLlmService(config = {}) {
   const safeConfig = {
     enabled: Boolean(config.enabled),
     provider: config.provider || 'ollama',
-    model: config.model || 'llama3',
+    model: config.model || 'glm-4.7-flash',
     temperature: typeof config.temperature === 'number' ? config.temperature : 0.2,
     endpoint: config.endpoint || 'http://localhost:11434',
     command: config.command || null
