@@ -1,0 +1,182 @@
+# Lightweight Conventional Commit model for Smart Commit CLI
+# Usage: ollama create phi3-smart-commit -f docs/phi3-smart-commit.modelfile
+
+# Base model selection (phi3 is small + fast on local GPUs/CPUs)
+FROM phi3
+
+# Keep generations stable/concise for commit subjects
+PARAMETER temperature 0.2
+PARAMETER stop "Input:"
+PARAMETER stop "Output:"
+
+# Instruct the model to follow Conventional Commit rules strictly
+# Note: Instructions for plain-text format are moved here since RESPONSE_FORMAT is not a valid Modelfile command
+SYSTEM """
+You are a release engineer who writes Conventional Commit messages.
+Your output must be a single line of plain text representing the commit subject.
+Do not include markdown, code blocks, JSON, or any conversational filler.
+"""
+
+# Mirror the CLI prompt exactly (Smart Commit injects diff + metadata)
+TEMPLATE "{{ .Prompt }}"
+
+# === Training messages ===
+MESSAGE user """
+Input:
+Planned type: feat
+Planned scope: auth
+Rule-based suggestion: feat(auth): add basic otp
+
+Changed files:
+- src/auth/otp.ts (added)
+
+Git diff:
+diff --git a/src/auth/otp.ts b/src/auth/otp.ts
++ export function createOtp(secret) {
++    return totp(secret, { digits: 6, window: 1 });
++ }
++ export function verifyOtp(secret, code) {
++    return totpCheck(code, secret, { digits: 6, window: 1 });
++ }
+
+Output:
+"""
+
+MESSAGE assistant "feat(auth): add otp helpers"
+
+MESSAGE user """
+Input:
+Planned type: fix
+Planned scope: planner
+Rule-based suggestion: fix(planner): handle zero files
+
+Changed files:
+- src/commitPlanner.js (modified)
+
+Git diff:
+diff --git a/src/commitPlanner.js b/src/commitPlanner.js
+@@
+-export function planCommits(files) {
+-  if (!files) return [];
++export function planCommits(files = []) {
++  if (!files.length) return [];
+   // rest omitted
+
+Output:
+"""
+
+MESSAGE assistant "fix(planner): guard empty file lists"
+
+MESSAGE user """
+Input:
+Planned type: docs
+Planned scope: readme
+Rule-based suggestion: docs(readme): clarify ai flags
+
+Changed files:
+- README.md (modified)
+
+Git diff:
+diff --git a/README.md b/README.md
+@@
+-# preview AI-enhanced messages (falls back when Ollama is unavailable)
+-npx smart-commit --dry-run --ai
++# preview AI-enhanced messages (strict mode requires Ollama)
++npx smart-commit --dry-run --ai --strict
+
+Output:
+"""
+
+MESSAGE assistant "docs(readme): clarify strict ai flag"
+
+MESSAGE user """
+Input:
+Planned type: refactor
+Planned scope: llm-service
+Rule-based suggestion: refactor(llm-service): split helpers
+
+Changed files:
+- src/llmService.js (modified)
+
+Git diff:
+diff --git a/src/llmService.js b/src/llmService.js
+@@
+-const REQUEST_TIMEOUT_MS = 15000;
++const REQUEST_TIMEOUT_MS = 12000;
++
++function assertConventional(line) {
++  return CONVENTIONAL_COMMIT_PATTERN.test(line);
++}
+
+Output:
+"""
+
+MESSAGE assistant "refactor(llm-service): add conventional guard helper"
+
+MESSAGE user """
+Input:
+Planned type: fix
+Planned scope: config
+Rule-based suggestion: fix(config): default ai enabled
+
+Changed files:
+- src/config.js (modified)
+
+Git diff:
+diff --git a/src/config.js b/src/config.js
+@@
+-const DEFAULT_AI_CONFIG = {
+-  enabled: false,
++const DEFAULT_AI_CONFIG = {
++  enabled: true,
+   provider: 'ollama',
+   model: 'phi3',
+
+Output:
+"""
+
+MESSAGE assistant "fix(config): enable ai defaults"
+
+MESSAGE user """
+Input:
+Planned type: style
+Planned scope: prompts
+Rule-based suggestion: style(prompts): tidy whitespace
+
+Changed files:
+- docs/llm_prompt_guide.txt (modified)
+
+Git diff:
+diff --git a/docs/llm_prompt_guide.txt b/docs/llm_prompt_guide.txt
+@@
+-Respond with the commit subject only.
++Respond with the commit subject only.
++
+ --- DEFAULT MODEL ---
+
+Output:
+"""
+
+MESSAGE assistant "style(prompts): trim guide whitespace"
+
+MESSAGE user """
+Input:
+Planned type: feat
+Planned scope: scripts
+Rule-based suggestion: feat(scripts): add ai reset helper
+
+Changed files:
+- scripts/reset-ollama.mjs (added)
+
+Git diff:
+diff --git a/scripts/reset-ollama.mjs b/scripts/reset-ollama.mjs
++#!/usr/bin/env node
++import { spawnSync } from 'node:child_process';
++
++spawnSync('pkill', ['-f', 'ollama'], { stdio: 'ignore' });
++spawnSync('ollama', ['serve'], { detached: true, stdio: 'ignore' });
+
+Output:
+"""
+
+MESSAGE assistant "feat(scripts): add ollama reset helper"
