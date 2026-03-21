@@ -1,1 +1,4 @@
 this file will keep changing until smart-commit generate commit messages wth ollama 
+
+
+second test, as i have changed base model form glm-4.7-flash as it return an AOF error message due to poor specs, changed to phi3 more lightweight model and reliable
