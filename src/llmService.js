@@ -35,7 +35,8 @@ export function createLlmService(config = {}) {
     const correctionPrompt = [
       prompt,
       '',
-      'Correction: Respond with exactly one line formatted as type(scope): description using lowercase types only. Do not add commentary.'
+      'Correction: Respond with exactly one line formatted as type(scope): description using lowercase types only.',
+      'Use plain English that summarizes behavior change. Do not copy code, symbols, or raw diff lines.'
     ].join('\n');
 
     const secondTry = await dispatchPrompt(correctionPrompt);
@@ -146,7 +147,9 @@ function buildPrompt(commitMeta, diff) {
     '[Diff]',
     diff.trim(),
     '',
-    'Instruction: Write the commit subject line following the type(scope): description format. Use imperative mood. Respond ONLY with the line.'
+    'Instruction: Write the commit subject line following the type(scope): description format. Use imperative mood.',
+    'Instruction: Summarize what changed in plain language. Do not quote code or paste diff snippets.',
+    'Instruction: Respond ONLY with the line.'
   ].join('\n');
 }
 
@@ -175,7 +178,30 @@ function isValidCommitSubject(candidate) {
   if (!candidate) {
     return false;
   }
-  return COMMIT_PATTERN.test(candidate);
+  if (!COMMIT_PATTERN.test(candidate)) {
+    return false;
+  }
+
+  return !isCodeLikeCommit(candidate);
+}
+
+function isCodeLikeCommit(candidate) {
+  const [, description = ''] = candidate.split(':');
+  const lowered = description.toLowerCase();
+
+  if (!description.trim()) {
+    return true;
+  }
+
+  const codePatterns = [
+    /[{};`]/,
+    /=>/,
+    /\b(import|export|const|let|var|function|class|return)\b/,
+    /\w+\(.*\)/,
+    /\bif\s*\(|\bfor\s*\(|\bwhile\s*\(/
+  ];
+
+  return codePatterns.some((pattern) => pattern.test(lowered));
 }
 
 function enforceLength(candidate) {
