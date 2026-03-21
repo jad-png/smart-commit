@@ -50,11 +50,12 @@ async function run(cliOptions) {
     return;
   }
 
-  const plan = planCommits(candidateFiles, {
+  const plan = await planCommits(candidateFiles, {
     scopeDepth: options.scopeDepth,
     typeOverrides: options.typeOverrides,
     ignorePatterns: options.ignorePatterns,
-    maxFilesPerCommit: options.maxFilesPerCommit
+    maxFilesPerCommit: options.maxFilesPerCommit,
+    diffFetcher: createDiffFetcher(git)
   });
 
   if (!plan.length) {
@@ -245,5 +246,17 @@ function buildCommitMeta(commit) {
     files: commit.files.map((file) => ({ path: file.path, change: file.change })),
     description: commit.description,
     message: commit.message
+  };
+}
+
+function createDiffFetcher(git) {
+  return async (file) => {
+    const useCached = file.staged && !file.hasUnstaged;
+    return git.diffSingle(file.path, {
+      cached: useCached,
+      maxLines: 100,
+      maxBytes: 4096,
+      appendMarker: false
+    });
   };
 }
