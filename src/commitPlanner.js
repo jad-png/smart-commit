@@ -1,19 +1,26 @@
 import { classifyFile } from './fileClassifier.js';
 
-export function planCommits(files, options) {
+export async function planCommits(files, options) {
   const {
     scopeDepth = 1,
     typeOverrides = [],
     ignorePatterns = [],
-    maxFilesPerCommit = Infinity
+    maxFilesPerCommit = Infinity,
+    diffFetcher = null
   } = options;
 
   const orderedFiles = files.filter((file) => !matchesIgnore(file.path, ignorePatterns));
-
   const groups = new Map();
+  const annotated = await Promise.all(
+    orderedFiles.map(async (file, index) => {
+      const diffPreview = diffFetcher ? await diffFetcher(file) : '';
+      const enrichedFile = { ...file, diffPreview };
+      const classification = await classifyFile(enrichedFile, { scopeDepth, typeOverrides });
+      return { file: enrichedFile, classification, index };
+    })
+  );
 
-  orderedFiles.forEach((file, index) => {
-    const classification = classifyFile(file, { scopeDepth, typeOverrides });
+  annotated.forEach(({ file, classification, index }) => {
     const key = `${classification.type}:${classification.scope}`;
 
     if (!groups.has(key)) {
